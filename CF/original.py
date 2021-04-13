@@ -12,43 +12,25 @@ class userCF:
     userNumMax=610
     movieNumMax=193609
     testRate=10     #测试集占源数据集的比率
+#___开始___
+    def __init__(self,rate_file,friendsNum,movieNum):
 
-    def __init__(self,rate_file):
+        
+        trainSetMatrix,testSetMatrix=self.dataLoadAndSplit(rate_file)
+        userSimilarity=self.userSimFunc(trainSetMatrix)
+        # userId=1        #test
+        self.recmdSys(userSimilarity,trainSetMatrix,friendsNum,movieNum)
 
-        ratingsData=self.dataLoad(rate_file)
-        trainSet,testSet=self.dataSplit(ratingsData)
-        userSimilarity,userRowModvieMatrix=self.userSimFunc(trainSet)
-        finalMovieRecList=self.recommend(1,userSimilarity,userRowModvieMatrix)
-        precs=self.precision(testSet,finalMovieRecList,1)
-        reCall=self.reCall(userRowModvieMatrix,finalMovieRecList,1)
-    def dataLoad(self,rate_file):
-        ###数据载入###
 
-        # print("读取movies.csv数据...")
-        # movie_file=r'C:/Users/chasu/Desktop/dataSET/small/movies.csv'   #movieId,title,genres
-        # moviesData=[]
-        # movieSet=set()
-        # for line in open(movie_file):
-        #     movieId,title,genres = line.split(",")
-        #     moviesData.append((int(movieId),title))
-        #     movieSet.add(movieId)
-
-        print("读取ratings.csv数据，并处理...")
-        # timest=time.time()
+#___数据载入___
+    def dataLoadAndSplit(self,rate_file):
+        print("从文件读入数据")
         ratingsData=[]
-        # userSet=set()
         for line in open(rate_file):
             userid,itemid,record,idcode = line.split(",")
-            # userSet.add(userid)
             ratingsData.append((int(userid),int(itemid),float(record)-std))     #data列表 [(user,movie,record),(...)...]
-        # timend=time.time()
-        # print("10w数据读取时间:{:.3f}".format(timend-timest))
-        return ratingsData
-
-    ###分割数据集###
-    def dataSplit(self,ratingsData):
         
-        # timest=time.time()
+        print("数据分割为训练集和测试集")
         trainSet=[]
         testSet=[]
         for dataitem in ratingsData:
@@ -56,64 +38,107 @@ class userCF:
                 testSet.append(dataitem)
             else:
                 trainSet.append(dataitem)
-        # timend=time.time()
-        # print("数据分割时间:{:.3f}".format(timend-timest))
-        return trainSet,testSet
+        
+        print("将训练集和测试集转为矩阵")
+        trainSetMatrix = np.full((userNumMax+1, movieNumMax+1), 0, dtype=float)  
+        for dataitem in trainSet:
+            trainSetMatrix[ dataitem[0]][ dataitem[1] ]=dataitem[2]
+        testSetMatrix = np.full((userNumMax+1, movieNumMax+1), 0, dtype=float)  
+        for dataitem in testSet:
+            testSetMatrix[ dataitem[0]][ dataitem[1] ]=dataitem[2]
+        return  trainSetMatrix,testSetMatrix
 
-    ###用户相似度矩阵###
-    def userSimFunc(self,trainSet):
-        # timest=time.time()
-        if os.path.exists("./cache/userSimilarity.npy") and os.path.exists("./cache/userRowModvieMatrix.npy") :
-            print("从文件加载 ...")
-            userSimilarity = np.load("./cache/userSimilarity.npy")
-            userRowModvieMatrix=np.load("./cache/userRowModvieMatrix.npy")
-        else:
-            print("开始计算用户相似度 ...")
-            userRowModvieMatrix = np.full((userNumMax+1, movieNumMax+1), 0, dtype=float)  #生产usersNum*moviesNum大小的矩阵，默认值为std
-            for dataitem in trainSet:
-                userRowModvieMatrix[ dataitem[0]][ dataitem[1] ]=dataitem[2]
-            #计算两个向量的内积(包括了特殊-模)
-            userRowInner=np.full((userNumMax+1, userNumMax+1), 0, dtype=float)
-            for i in range(1,userNumMax+1):
-                for j in range(i,userNumMax+1):
-                    userRowInner[i][j] =np.dot(userRowModvieMatrix[i],userRowModvieMatrix[j])
-            #计算用户相似度
-            userSimilarity = np.full((userNumMax+1, userNumMax+1), 0, dtype=float)
-            for i in range(1,userNumMax+1):     #range 左闭右开
-                for j in range(i+1,userNumMax+1):
-                    userSimilarity[i][j]=userRowInner[i][j] /(math.sqrt(userRowInner[i][i])*math.sqrt(userRowInner[j][j]))
-                    userSimilarity[j][i]=userSimilarity[i][j]
-            print("保存文件 ...")
-            np.save("./cache/userSimilarity.npy",userSimilarity)
-            np.save("./cache/userRowModvieMatrix.npy",userRowModvieMatrix)
-        return userSimilarity,userRowModvieMatrix
-        # timend=time.time()
-        # print("计算相似度时间矩阵:{:.3f}".format(timend-timest))
-    def recommend(self,userId,userSimilarity,userRowModvieMatrix,userRfnsNum=10,movieNum=40):
+#___用户相似度矩阵___
+    def userSimFunc(self,trainSetMatrix):
+        userSimPath="cache/userSimilarity.npy"
+        if os.path.exists(userSimPath):
+            print("从文件导入用户相似度 ...")
+            return np.load(userSimPath)
+        print("开始计算用户相似度 ...")
+        timest=time.time()
+        #计算两个向量的内积(包括了自身)
+        userRowInner=np.full((userNumMax+1, userNumMax+1), 0, dtype=float)
+        for i in range(1,userNumMax+1):
+            for j in range(i,userNumMax+1):
+                userRowInner[i][j] =np.dot(trainSetMatrix[i],trainSetMatrix[j])
+        #计算用户相似度
+        userSimilarity = np.full((userNumMax+1, userNumMax+1), 0, dtype=float)
+        for i in range(1,userNumMax+1):     
+            for j in range(i+1,userNumMax+1):
+                userSimilarity[i][j]=userRowInner[i][j] /(math.sqrt(userRowInner[i][i])*math.sqrt(userRowInner[j][j]))
+                userSimilarity[j][i]=userSimilarity[i][j]
+        timend=time.time()
+        np.save(userSimPath,userSimilarity)
+        print("计算用户相似度userSimilarity计算时间：{}".format(timend-timest))
+        return userSimilarity
+
+#___整个系统用户推荐___
+    def recmdSys(self,userSimilarity,trainSetMatrix,friendsNum,movieNum):
+        print("开始计算系统推荐...")
+        timest=time.time()
+        #将uid和similar整理到一个列表
+        friendsList=list()  #初始化(userNumMax+1)个列表，且每个列表内为一个空列表
+        for uid in range(0,userNumMax):
+            friendsList.append(list())
+            for fid in range(0,userNumMax):
+                friendsList[uid].append(list())
+                friendsList[uid][fid].append(fid)
+                friendsList[uid][fid].append(userSimilarity[uid+1][fid+1])
+        topFriendList=list()
+        # 找到最相似的友邻
+        for uid in range(0,userNumMax):
+            topFriendList.append(sorted(friendsList[uid], key=lambda dic: dic[1],reverse=True)[0:friendsNum])
+        # 根据相似友邻计算所有电影的推荐指数
+        print("根据相似友邻计算所有电影的推荐指数")
+        allMovList=list()
+        for uid in range(0,userNumMax):
+            allMovList.append(list())
+            for mid in range(0,movieNumMax):
+                allMovList[uid].append(list())
+                sum=0
+                for frd in topFriendList[uid]:
+                    fUid=frd[0]
+                    sim=frd[1]
+                    sum+=sim*trainSetMatrix[fUid+1][mid+1]
+                allMovList[uid][mid]=sum
+            print("uID:{} 已经计算好!".format(uid))
+
+            
+        timend=time.time()
+        print("推荐系统用时：{}".format(timend-timest))
+        print()
+#___单个用户推荐___
+    def recommendForOne(self,userId,userSimilarity,userRowModvieMatrix,friendsNum,movieNum):
+        print("正在计算为用户{}计算推荐电影...".format(userId))
         userIdFriends=userSimilarity[userId]    # userId与所有用户的相似度向量(1*userNumMax)
         friendSimilarList=[]                    # 列表，存储[userid,similar]列表，即[[userid,similar],[..]...]
         for friendId in range(1,userNumMax+1):
             friendSimilarList.append([friendId,userIdFriends[friendId]])
-        topFriendList=sorted(friendSimilarList, key=lambda dic: dic[1],reverse=True)[0:userRfnsNum]
-        # 按silimar关键字从大到小排序的friendSimilarList，的前userRfnsNum个
+        topFriendList=sorted(friendSimilarList, key=lambda dic: dic[1],reverse=True)[0:friendsNum]
+        # 按silimar关键字从大到小排序的friendSimilarList，的前friendsNum个
         # lambda 表达式，以列表的列表中第二个为关键字排序
+
+        # 根据所有友邻计算所有电影的推荐指数
         allMovList=np.full(movieNumMax+1, 0, dtype=float)
-        for fid in range(0,userRfnsNum):
+        for fid in range(0,friendsNum):
             uid=topFriendList[fid][0]
             sim=topFriendList[fid][1]
             for mid in range(1,movieNumMax+1):
                 rcd=userRowModvieMatrix[uid][mid]
                 allMovList[mid]+=rcd*sim
+
         #所有电影的推荐指数已计算完成
         allMovieRecList=[]
         for mid in range(1,movieNumMax+1):
             allMovieRecList.append([mid,allMovList[mid]])
         finalMovieRecList=sorted(allMovieRecList, key=lambda dic: dic[1],reverse=True)[0:movieNum]
+        for mov in finalMovieRecList:
+            print("mid:{: >10},rec:{: >30}".format(mov[0],mov[1]))
         return finalMovieRecList
-        # for mov in finalMovieRecList:
-        #     print("mid:{: >10},rec:{: >30}".format(mov[0],mov[1]))
-    
-    def precision(self,testSet,finalMovieRecList,userId):
+
+
+#___系统准确率和召回率___
+    def precisionAndRecall(self,testSet,finalMovieRecList,userId):
         '''准确率=测试集与推荐中重合的电影/所有推荐的电影
         '''
         size=len(finalMovieRecList)
@@ -141,7 +166,7 @@ class userCF:
 
 if __name__=="__main__":
     rate_file=r'C:/Users/chasu/Desktop/dataSET/small/ratings.csv'
-    userRecommend=userCF(rate_file)
+    userCF=userCF(rate_file,10,40)
 
 
 
