@@ -63,10 +63,10 @@ class userCF:
     ###用户相似度矩阵###
     def userSimFunc(self,trainSet):
         # timest=time.time()
-        if os.path.exists("./data/userSimilarity.npy") and os.path.exists("./data/userRowModvieMatrix.npy") :
+        if os.path.exists("./cache/userSimilarity.npy") and os.path.exists("./cache/userRowModvieMatrix.npy") :
             print("从文件加载 ...")
-            userSimilarity = np.load("./data/userSimilarity.npy")
-            userRowModvieMatrix=np.load("./data/userRowModvieMatrix.npy")
+            userSimilarity = np.load("./cache/userSimilarity.npy")
+            userRowModvieMatrix=np.load("./cache/userRowModvieMatrix.npy")
         else:
             print("开始计算用户相似度 ...")
             userRowModvieMatrix = np.full((userNumMax+1, movieNumMax+1), 0, dtype=float)  #生产usersNum*moviesNum大小的矩阵，默认值为std
@@ -84,8 +84,8 @@ class userCF:
                     userSimilarity[i][j]=userRowInner[i][j] /(math.sqrt(userRowInner[i][i])*math.sqrt(userRowInner[j][j]))
                     userSimilarity[j][i]=userSimilarity[i][j]
             print("保存文件 ...")
-            np.save("./data/userSimilarity.npy",userSimilarity)
-            np.save("./data/userRowModvieMatrix.npy",userRowModvieMatrix)
+            np.save("./cache/userSimilarity.npy",userSimilarity)
+            np.save("./cache/userRowModvieMatrix.npy",userRowModvieMatrix)
         return userSimilarity,userRowModvieMatrix
         # timend=time.time()
         # print("计算相似度时间矩阵:{:.3f}".format(timend-timest))
