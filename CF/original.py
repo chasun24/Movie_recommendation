@@ -19,8 +19,8 @@ class userCF:
         trainSetMatrix,testSetMatrix=self.dataLoadAndSplit(rate_file)
         userSimilarity=self.userSimFunc(trainSetMatrix)
         # userId=1        #test
-        self.recmdSys(userSimilarity,trainSetMatrix,friendsNum,movieNum)
-
+        topMovList_NoSim=self.recmdSys(userSimilarity,trainSetMatrix,friendsNum,movieNum)
+        self.precisionAndRecall(topMovList_NoSim,trainSetMatrix,movieNum)
 
 #___数据载入___
     def dataLoadAndSplit(self,rate_file):
@@ -33,7 +33,7 @@ class userCF:
         print("数据分割为训练集和测试集")
         trainSet=[]
         testSet=[]
-        for dataitem in ratingsData:
+        for dataitem in ratingsData:  
             if random.randint(0,99)<testRate:
                 testSet.append(dataitem)
             else:
@@ -54,7 +54,7 @@ class userCF:
         if os.path.exists(userSimPath):
             print("从文件导入用户相似度 ...")
             return np.load(userSimPath)
-        print("开始计算用户相似度 ...")
+        print("开始计算用户相似度 ...(about 30 s)")
         timest=time.time()
         #计算两个向量的内积(包括了自身)
         userRowInner=np.full((userNumMax+1, userNumMax+1), 0, dtype=float)
@@ -75,97 +75,103 @@ class userCF:
 #___整个系统用户推荐___
     def recmdSys(self,userSimilarity,trainSetMatrix,friendsNum,movieNum):
         print("开始计算系统推荐...")
-        timest=time.time()
-        #将uid和similar整理到一个列表
+        #将uid和similar整理到一个列表用户编号，以1开始
         friendsList=list()  #初始化(userNumMax+1)个列表，且每个列表内为一个空列表
-        for uid in range(0,userNumMax):
+        # uind表示索引，以0开始，uid表示y
+        for uind in range(0,userNumMax):
             friendsList.append(list())
-            for fid in range(0,userNumMax):
-                friendsList[uid].append(list())
-                friendsList[uid][fid].append(fid)
-                friendsList[uid][fid].append(userSimilarity[uid+1][fid+1])
+            for find in range(0,userNumMax):
+                friendsList[uind].append(list())
+                friendsList[uind][find].append(find)
+                friendsList[uind][find].append(userSimilarity[uind+1][find+1])
         topFriendList=list()
         # 找到最相似的友邻
         for uid in range(0,userNumMax):
             topFriendList.append(sorted(friendsList[uid], key=lambda dic: dic[1],reverse=True)[0:friendsNum])
-        # 根据相似友邻计算所有电影的推荐指数
-        print("根据相似友邻计算所有电影的推荐指数")
-        allMovList=list()
-        for uid in range(0,userNumMax):
-            allMovList.append(list())
-            for mid in range(0,movieNumMax):
-                allMovList[uid].append(list())
-                sum=0
-                for frd in topFriendList[uid]:
-                    fUid=frd[0]
-                    sim=frd[1]
-                    sum+=sim*trainSetMatrix[fUid+1][mid+1]
-                allMovList[uid][mid]=sum
-            print("uID:{} 已经计算好!".format(uid))
+        # 根据相似友邻计算所有电影的推荐指数（全部电影计算，太费时间10min）
+        userSimPath="cache/allMovList.npy"
+        if os.path.exists(userSimPath):
+            allMovRecedList=np.load(userSimPath)
+        else:
+            print("根据相似友邻计算所有电影的推荐指数(about 20 min)")
+            timest=time.time()
+            allMovRecedList=list()  #use index     [ [ [mid,sum],[mid,sum] ] ,[...]...    ]
+            for uind in range(0,userNumMax):
+                myUserRecList=list()
+                for mid in range(1,movieNumMax+1):
+                    sum=0
+                    for frd in topFriendList[uind]:
+                        fid=frd[0]
+                        sim=frd[1]
+                        sum+=sim*trainSetMatrix[fid][mid]
+                    myUserRecList.append([mid,sum])
+                allMovRecedList.append(myUserRecList)
+                print("uID:{} 已经计算好!".format(uind+1))
+            timend=time.time()
+            np.save(userSimPath,allMovRecedList)
+            print("推荐用时：{}".format(timend-timest))  
 
-            
-        timend=time.time()
-        print("推荐系统用时：{}".format(timend-timest))
-        print()
-#___单个用户推荐___
-    def recommendForOne(self,userId,userSimilarity,userRowModvieMatrix,friendsNum,movieNum):
-        print("正在计算为用户{}计算推荐电影...".format(userId))
-        userIdFriends=userSimilarity[userId]    # userId与所有用户的相似度向量(1*userNumMax)
-        friendSimilarList=[]                    # 列表，存储[userid,similar]列表，即[[userid,similar],[..]...]
-        for friendId in range(1,userNumMax+1):
-            friendSimilarList.append([friendId,userIdFriends[friendId]])
-        topFriendList=sorted(friendSimilarList, key=lambda dic: dic[1],reverse=True)[0:friendsNum]
-        # 按silimar关键字从大到小排序的friendSimilarList，的前friendsNum个
-        # lambda 表达式，以列表的列表中第二个为关键字排序
-
-        # 根据所有友邻计算所有电影的推荐指数
-        allMovList=np.full(movieNumMax+1, 0, dtype=float)
-        for fid in range(0,friendsNum):
-            uid=topFriendList[fid][0]
-            sim=topFriendList[fid][1]
-            for mid in range(1,movieNumMax+1):
-                rcd=userRowModvieMatrix[uid][mid]
-                allMovList[mid]+=rcd*sim
-
-        #所有电影的推荐指数已计算完成
-        allMovieRecList=[]
-        for mid in range(1,movieNumMax+1):
-            allMovieRecList.append([mid,allMovList[mid]])
-        finalMovieRecList=sorted(allMovieRecList, key=lambda dic: dic[1],reverse=True)[0:movieNum]
-        for mov in finalMovieRecList:
-            print("mid:{: >10},rec:{: >30}".format(mov[0],mov[1]))
-        return finalMovieRecList
+        #按每个用户将推荐列表按推荐指数排序，选择前 movieNum 个
+        print("按每个用户将推荐列表按推荐指数排序，选择前 {} 个".format(movieNum))
+        topMovRcmdedListPath="cache/topMovRcmdedList.npy"
+        if os.path.exists(topMovRcmdedListPath):
+            topMovRcmdedList=np.load(topMovRcmdedListPath)
+        else:
+            topMovRcmdedList=list()     #use index
+            for uind in range(0,userNumMax):
+                tamp=allMovRecedList[uind]    #use index
+                topMovRcmdedList.append(sorted(tamp,key=lambda x:x[1] ,reverse=True)[0:movieNum])
+                print("用户{} ok!".format(uind+1))
+            np.save(topMovRcmdedListPath,topMovRcmdedList)
+        #去除列表中推荐程度信息，仅有电影编号信息
+        print("去除列表中推荐程度信息，仅有电影编号信息")
+        topMovList_NoSim=list()
+        for uind in range(0,userNumMax):
+            myUserList=list()
+            tamp=topMovRcmdedList[uind]    #use index
+            for itme in tamp:       # [ [mid,sum],[mid,sum].... ]
+                myUserList.append(itme[0])
+            topMovList_NoSim.append(myUserList)
+        return topMovList_NoSim
 
 
 #___系统准确率和召回率___
-    def precisionAndRecall(self,testSet,finalMovieRecList,userId):
-        '''准确率=测试集与推荐中重合的电影/所有推荐的电影
+    def precisionAndRecall(self,topMovList_NoSim,trainSetMatrix,movieNum):
         '''
-        size=len(finalMovieRecList)
-        testMatrix = np.full(movieNumMax+1, 0, dtype=float)
-        for dataitem in testSet:
-            if dataitem[0]!=userId:
-                continue
-            testMatrix[ dataitem[1] ]=dataitem[2]
-        cnt=0
-        for m in finalMovieRecList:
-            if testMatrix[m[0]]!=0:
-                cnt+=1
-        print("cnt={: >10},precision={: >25}%".format(cnt,cnt/size*100))
-        return cnt/size
-    def reCall(self,userRowModvieMatrix,finalMovieRecList,userId):
-        size=len(finalMovieRecList)
-        cnt=0
-        for m in finalMovieRecList:
-            if userRowModvieMatrix[userId][m[0]]!=0:
-                cnt+=1
-        print("cnt={: >10},reCallrate={: >25}%".format(cnt,cnt/size*100))
-        return cnt/size
-        
-
-
+        准确率=每个用户的(预测电影列表和测试集电影列表交集的数量)之和allUserSameMovNum/每个用户的(测试集电影列表数量)之和allUserTestMovNum
+        召回率=每个用户的(预测电影列表和测试集电影列表交集的数量)之和allUserSameMovNum/每个用户的(预测电影列表数量)之和allUserPdicMovNum
+        '''
+        print("计算系统准确率和召回率(about 90s)")
+        timest=time.time()
+        allUserSameMovNum=0
+        allUserTestMovNum=0
+        for uid in range(1,userNumMax+1):
+            uind=uid-1
+            sameMovNum=0
+            testMovNum=0
+            testList=trainSetMatrix[uid]
+            predictList=topMovList_NoSim[uind]   #use index
+            for Tmid in range(1,movieNumMax+1):
+                rec=testList[Tmid]
+                if rec<=0:
+                    continue
+                testMovNum+=1;
+                for Pm in predictList:
+                    if Tmid==Pm:
+                        sameMovNum+=1
+            # print("==>  {}/{}".format(uind+1,userNumMax))
+            allUserSameMovNum+=sameMovNum
+            allUserTestMovNum+=testMovNum
+        allUserPdicMovNum=userNumMax*movieNum
+        precision=allUserSameMovNum/allUserTestMovNum
+        reCall=allUserSameMovNum/allUserPdicMovNum
+        timend=time.time()
+        print("计算准确率和召回率的时间：{}".format(timend-timest))
+        print("<===================================>")
+        print("准确率：{:.4f}%".format(precision*100))
+        print("召回率：{:.4f}%".format(reCall*100))
 if __name__=="__main__":
-    rate_file=r'C:/Users/chasu/Desktop/dataSET/small/ratings.csv'
+    rate_file=r'./data/small/ratings.csv'
     userCF=userCF(rate_file,10,40)
 
 
