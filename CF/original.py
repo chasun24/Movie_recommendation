@@ -3,7 +3,6 @@ import numpy as np
 import random
 import math
 import time
-import heapq
 
 
 class userCF:
@@ -11,16 +10,28 @@ class userCF:
     std=3.0     #定义常变量表示标准，小于3表示不喜爱，大于3表示喜爱
     userNumMax=610
     movieNumMax=193609
-    testRate=10     #测试集占源数据集的比率
+    testRate=10     #测试集占源数据集的比率%
+    P_importFromFile = False #是否可以从文件读入
+
+    precisionRate=0
+    recallRate=0
+    absCoverageRate=0
+    refCoverageRate=0
+
 #___开始___
     def __init__(self,rate_file,friendsNum,movieNum):
 
         
         trainSetMatrix,testSetMatrix=self.dataLoadAndSplit(rate_file)
         userSimilarity=self.userSimFunc(trainSetMatrix)
-        # userId=1        #test
         topMovList_NoSim=self.recmdSys(userSimilarity,trainSetMatrix,friendsNum,movieNum)
-        self.precisionAndRecall(topMovList_NoSim,trainSetMatrix,movieNum)
+        self.precisionRate,self.recallRate=self.precisionAndRecall(topMovList_NoSim,trainSetMatrix,movieNum)
+        self.absCoverageRate,self.refCoverageRate=self.coverage(movieNum,topMovList_NoSim)
+
+
+#___数据返回____
+    def dataReturn(self):
+        return self.precisionRate,self.recallRate,self.absCoverageRate,self.refCoverageRate
 
 #___数据载入___
     def dataLoadAndSplit(self,rate_file):
@@ -51,7 +62,7 @@ class userCF:
 #___用户相似度矩阵___
     def userSimFunc(self,trainSetMatrix):
         userSimPath="cache/userSimilarity.npy"
-        if os.path.exists(userSimPath):
+        if self.P_importFromFile and os.path.exists(userSimPath):
             print("从文件导入用户相似度 ...")
             return np.load(userSimPath)
         print("开始计算用户相似度 ...(about 30 s)")
@@ -86,14 +97,15 @@ class userCF:
                 friendsList[uind][find].append(userSimilarity[uind+1][find+1])
         topFriendList=list()
         # 找到最相似的友邻
+        print("找到最相似的{}个友邻".format(friendsNum))
         for uid in range(0,userNumMax):
             topFriendList.append(sorted(friendsList[uid], key=lambda dic: dic[1],reverse=True)[0:friendsNum])
         # 根据相似友邻计算所有电影的推荐指数（全部电影计算，太费时间10min）
         userSimPath="cache/allMovList.npy"
-        if os.path.exists(userSimPath):
+        if self.P_importFromFile and os.path.exists(userSimPath):
             allMovRecedList=np.load(userSimPath)
         else:
-            print("根据相似友邻计算所有电影的推荐指数(about 20 min)")
+            print("根据相似的友邻计算所有电影的推荐指数(about 20 min)")
             timest=time.time()
             allMovRecedList=list()  #use index     [ [ [mid,sum],[mid,sum] ] ,[...]...    ]
             for uind in range(0,userNumMax):
@@ -114,7 +126,7 @@ class userCF:
         #按每个用户将推荐列表按推荐指数排序，选择前 movieNum 个
         print("按每个用户将推荐列表按推荐指数排序，选择前 {} 个".format(movieNum))
         topMovRcmdedListPath="cache/topMovRcmdedList.npy"
-        if os.path.exists(topMovRcmdedListPath):
+        if self.P_importFromFile and os.path.exists(topMovRcmdedListPath):
             topMovRcmdedList=np.load(topMovRcmdedListPath)
         else:
             topMovRcmdedList=list()     #use index
@@ -123,6 +135,7 @@ class userCF:
                 topMovRcmdedList.append(sorted(tamp,key=lambda x:x[1] ,reverse=True)[0:movieNum])
                 print("用户{} ok!".format(uind+1))
             np.save(topMovRcmdedListPath,topMovRcmdedList)
+
         #去除列表中推荐程度信息，仅有电影编号信息
         print("去除列表中推荐程度信息，仅有电影编号信息")
         topMovList_NoSim=list()
@@ -165,15 +178,62 @@ class userCF:
         allUserPdicMovNum=userNumMax*movieNum
         precision=allUserSameMovNum/allUserTestMovNum
         reCall=allUserSameMovNum/allUserPdicMovNum
+        precisionRate=precision*100
+        recallRate=reCall*100
         timend=time.time()
         print("计算准确率和召回率的时间：{}".format(timend-timest))
         print("<===================================>")
-        print("准确率：{:.4f}%".format(precision*100))
-        print("召回率：{:.4f}%".format(reCall*100))
+        print("准确率：{:.4f}%".format(precisionRate))
+        print("召回率：{:.4f}%".format(recallRate))
+        return precisionRate,recallRate
+#___系统覆盖率___
+    def coverage(self,movieNum,topMovList_NoSim):
+        '''
+        覆盖率=每个用户的预测电影列表的交集/系统电影总数量  (至多为 userNumMax*movieNum/movieNumMax ，此时为每个用户推荐的电影都不同)
+        在覆盖率不可能达到100%的情况下定义：
+            1. 绝对覆盖率
+                每个用户的预测电影列表的交集/系统电影总数量 （源定义）
+            2. 相对覆盖率
+                每个用户的预测电影列表的交集/系统为用户推荐的总电影数   (至多可达100%)
+        '''
+
+        '''
+        用集合来写交集
+        '''
+        print("计算系统覆盖率")
+        timest=time.time()
+        allUserMovSet=set()
+
+        for userRecMov in topMovList_NoSim:
+            for movId in userRecMov:
+                allUserMovSet.add(movId)
+
+        absMovSum=movieNumMax
+        refMovSun=userNumMax*movieNum
+        absCoverageRate=len(allUserMovSet)/absMovSum*100
+        refCoverageRate=len(allUserMovSet)/refMovSun*100
+        timend=time.time()
+        print("计算准确率和召回率的时间：{}s".format(timend-timest))
+        print("<===================================>")
+        print("交集个数：{}".format(len(allUserMovSet)))
+        print("绝对覆盖率：{:.6f}%".format(absCoverageRate))
+        print("相对覆盖率：{:.6f}%".format(refCoverageRate))
+        return absCoverageRate,refCoverageRate
+        
 if __name__=="__main__":
     rate_file=r'./data/small/ratings.csv'
-    userCF=userCF(rate_file,10,40)
+    fo = open(r'./data/small/result.csv',"w+",encoding="utf-8")
+    fo.write("friendNum,movRecNum,precisionRate,recallRate,absCoverageRate,refCoverageRate,timecost\n")
+    friendNumChoice=[10,20,30,40,50]
+    movRecNumChoice=[10,20,30,40,50]
+    for i in range(0,len(friendNumChoice)):
+        for j in range(0,len(movRecNumChoice)):
+            tst=time.time()
+            cfTest=userCF(rate_file,friendNumChoice[i],movRecNumChoice[j])
+            ls=cfTest.dataReturn()
+            tend=time.time()
+            tcost=tend-tst
+            fo.write("{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n".format(friendNumChoice[i],movRecNumChoice[j],ls[0],ls[1],ls[2],ls[3],tcost))
 
-
-
+    fo.close()
 
