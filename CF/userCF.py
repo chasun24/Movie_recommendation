@@ -222,18 +222,19 @@ class userCF:
         
 if __name__=="__main__":
     rate_file=r'./data/small/ratings.csv'
-    fo = open(r'./data/small/result.csv',"w+",encoding="utf-8")
-    fo.write("friendNum,movRecNum,precisionRate,recallRate,absCoverageRate,refCoverageRate,timecost\n")
-    friendNumChoice=[10,20,30,40,50]
+    # fo = open(r'./data/small/result.csv',"w+",encoding="utf-8")
+    # fo.write("friendNum,movRecNum,precisionRate,recallRate,absCoverageRate,refCoverageRate,timecost\n")
+    friendNumChoice=[30,40,50]
     movRecNumChoice=[10,20,30,40,50]
     for i in range(0,len(friendNumChoice)):
         for j in range(0,len(movRecNumChoice)):
+            fo = open(r'./data/small/result.csv',"a+",encoding="utf-8")
             tst=time.time()
             cfTest=userCF(rate_file,friendNumChoice[i],movRecNumChoice[j])
             ls=cfTest.dataReturn()
             tend=time.time()
-            tcost=tend-tst
+            tcost=tend-tst  
             fo.write("{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n".format(friendNumChoice[i],movRecNumChoice[j],ls[0],ls[1],ls[2],ls[3],tcost))
-
-    fo.close()
+            fo.close()
+    
 
